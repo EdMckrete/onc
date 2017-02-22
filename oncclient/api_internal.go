@@ -576,20 +576,123 @@ func replyHandlerProcessPayload(rpcMsgReplyBodyHeaderBuf []byte, replyCallbacks 
 	return
 }
 
-type locateServiceContextStruct struct {
+type pmapProcSetContextStruct struct {
 	sync.WaitGroup
-	port uint16
-	err  error
+	err error
 }
 
-func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uint16, err error) {
+func doPmapProcSet(prog uint32, vers uint32, prot uint32, port uint16) (err error) {
 	var (
-		callPmapMapping      onc.PmapMappingStruct
-		locateServiceContext *locateServiceContextStruct
-		tcpAddr              *net.TCPAddr
-		tcpConn              *net.TCPConn
-		udpAddr              *net.UDPAddr
-		udpConn              *net.UDPConn
+		callPmapMapping onc.PmapMappingStruct
+		pPSCS           *pmapProcSetContextStruct
+		tcpAddr         *net.TCPAddr
+		tcpConn         *net.TCPConn
+		udpAddr         *net.UDPAddr
+		udpConn         *net.UDPConn
+	)
+
+	callPmapMapping = onc.PmapMappingStruct{
+		Prog: prog,
+		Vers: vers,
+		Prot: prot,
+		Port: uint32(port),
+	}
+
+	pPSCS = &pmapProcSetContextStruct{}
+
+	pPSCS.Add(1)
+
+	switch prot {
+	case onc.IPProtoTCP:
+		tcpAddr, err = net.ResolveTCPAddr("tcp4", "127.0.0.1:"+strconv.FormatUint(uint64(onc.PmapAndRpcbPort), 10))
+		if nil != err {
+			return
+		}
+
+		tcpConn, err = net.DialTCP("tcp4", nil, tcpAddr)
+		if nil != err {
+			return
+		}
+
+		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcSet, nil, callPmapMapping, pPSCS)
+		if nil != err {
+			return
+		}
+	case onc.IPProtoUDP:
+		udpAddr, err = net.ResolveUDPAddr("udp4", "127.0.0.1:"+strconv.FormatUint(uint64(onc.PmapAndRpcbPort), 10))
+		if nil != err {
+			return
+		}
+
+		udpConn, err = net.DialUDP("udp4", nil, udpAddr)
+		if nil != err {
+			return
+		}
+
+		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcSet, nil, callPmapMapping, pPSCS)
+		if nil != err {
+			return
+		}
+	default:
+		err = fmt.Errorf("prot == %v not supported", prot)
+		return
+	}
+
+	pPSCS.Wait()
+
+	err = pPSCS.err
+
+	return
+}
+
+func (pPSCS *pmapProcSetContextStruct) ONCReplySuccess(pmapMappingResponseBuf []byte) {
+	var (
+		pmapMappingResponse onc.PmapMappingResponseStruct
+	)
+
+	_, pPSCS.err = xdr.Unpack(pmapMappingResponseBuf, &pmapMappingResponse)
+	if nil == pPSCS.err {
+		if !pmapMappingResponse.Success {
+			pPSCS.err = fmt.Errorf("doPmapProcSet() got a FALSE .Success value")
+		}
+	}
+
+	pPSCS.Done()
+}
+
+func (pPSCS *pmapProcSetContextStruct) ONCReplyProgMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	pPSCS.err = fmt.Errorf("doPmapProcSet() got callback ONCReplyProgMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	pPSCS.Done()
+}
+
+func (pPSCS *pmapProcSetContextStruct) ONCReplyRpcMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	pPSCS.err = fmt.Errorf("doPmapProcSet() got callback ONCReplyRpcMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	pPSCS.Done()
+}
+
+func (pPSCS *pmapProcSetContextStruct) ONCReplyAuthError(stat uint32) {
+	pPSCS.err = fmt.Errorf("doPmapProcSet() got callback ONCReplyAuthError(%v)", stat)
+	pPSCS.Done()
+}
+
+func (pPSCS *pmapProcSetContextStruct) ONCReplyConnectionDown() {
+	pPSCS.err = fmt.Errorf("doPmapProcSet() got callback ONCReplyConnectionDown()")
+	pPSCS.Done()
+}
+
+type pmapProcUnsetContextStruct struct {
+	sync.WaitGroup
+	err error
+}
+
+func doPmapProcUnset(prog uint32, vers uint32, prot uint32) (err error) {
+	var (
+		callPmapMapping onc.PmapMappingStruct
+		pPUCS           *pmapProcUnsetContextStruct
+		tcpAddr         *net.TCPAddr
+		tcpConn         *net.TCPConn
+		udpAddr         *net.UDPAddr
+		udpConn         *net.UDPConn
 	)
 
 	callPmapMapping = onc.PmapMappingStruct{
@@ -599,9 +702,114 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 		Port: 0,
 	}
 
-	locateServiceContext = &locateServiceContextStruct{}
+	pPUCS = &pmapProcUnsetContextStruct{}
 
-	locateServiceContext.Add(1)
+	pPUCS.Add(1)
+
+	switch prot {
+	case onc.IPProtoTCP:
+		tcpAddr, err = net.ResolveTCPAddr("tcp4", "127.0.0.1:"+strconv.FormatUint(uint64(onc.PmapAndRpcbPort), 10))
+		if nil != err {
+			return
+		}
+
+		tcpConn, err = net.DialTCP("tcp4", nil, tcpAddr)
+		if nil != err {
+			return
+		}
+
+		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcUnset, nil, callPmapMapping, pPUCS)
+		if nil != err {
+			return
+		}
+	case onc.IPProtoUDP:
+		udpAddr, err = net.ResolveUDPAddr("udp4", "127.0.0.1:"+strconv.FormatUint(uint64(onc.PmapAndRpcbPort), 10))
+		if nil != err {
+			return
+		}
+
+		udpConn, err = net.DialUDP("udp4", nil, udpAddr)
+		if nil != err {
+			return
+		}
+
+		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcUnset, nil, callPmapMapping, pPUCS)
+		if nil != err {
+			return
+		}
+	default:
+		err = fmt.Errorf("prot == %v not supported", prot)
+		return
+	}
+
+	pPUCS.Wait()
+
+	err = pPUCS.err
+
+	return
+}
+
+func (pPUCS *pmapProcUnsetContextStruct) ONCReplySuccess(pmapMappingResponseBuf []byte) {
+	var (
+		pmapMappingResponse onc.PmapMappingResponseStruct
+	)
+
+	_, pPUCS.err = xdr.Unpack(pmapMappingResponseBuf, &pmapMappingResponse)
+	if nil == pPUCS.err {
+		if !pmapMappingResponse.Success {
+			pPUCS.err = fmt.Errorf("doPmapProcUnset() got a FALSE .Success value")
+		}
+	}
+
+	pPUCS.Done()
+}
+
+func (pPUCS *pmapProcUnsetContextStruct) ONCReplyProgMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	pPUCS.err = fmt.Errorf("doPmapProcUnset() got callback ONCReplyProgMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	pPUCS.Done()
+}
+
+func (pPUCS *pmapProcUnsetContextStruct) ONCReplyRpcMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	pPUCS.err = fmt.Errorf("doPmapProcUnset() got callback ONCReplyRpcMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	pPUCS.Done()
+}
+
+func (pPUCS *pmapProcUnsetContextStruct) ONCReplyAuthError(stat uint32) {
+	pPUCS.err = fmt.Errorf("doPmapProcUnset() got callback ONCReplyAuthError(%v)", stat)
+	pPUCS.Done()
+}
+
+func (pPUCS *pmapProcUnsetContextStruct) ONCReplyConnectionDown() {
+	pPUCS.err = fmt.Errorf("doPmapProcUnset() got callback ONCReplyConnectionDown()")
+	pPUCS.Done()
+}
+
+type pmapProcGetAddrContextStruct struct {
+	sync.WaitGroup
+	port uint16
+	err  error
+}
+
+func doPmapProcGetAddr(addr string, prog uint32, vers uint32, prot uint32) (port uint16, err error) {
+	var (
+		callPmapMapping onc.PmapMappingStruct
+		pPGACS          *pmapProcGetAddrContextStruct
+		tcpAddr         *net.TCPAddr
+		tcpConn         *net.TCPConn
+		udpAddr         *net.UDPAddr
+		udpConn         *net.UDPConn
+	)
+
+	callPmapMapping = onc.PmapMappingStruct{
+		Prog: prog,
+		Vers: vers,
+		Prot: prot,
+		Port: 0,
+	}
+
+	pPGACS = &pmapProcGetAddrContextStruct{}
+
+	pPGACS.Add(1)
 
 	switch prot {
 	case onc.IPProtoTCP:
@@ -615,7 +823,7 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
-		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, locateServiceContext)
+		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, pPGACS)
 		if nil != err {
 			return
 		}
@@ -630,7 +838,7 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
-		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, locateServiceContext)
+		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, pPGACS)
 		if nil != err {
 			return
 		}
@@ -639,43 +847,47 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 		return
 	}
 
-	locateServiceContext.Wait()
+	pPGACS.Wait()
 
-	port = locateServiceContext.port
-	err = locateServiceContext.err
+	port = pPGACS.port
+	err = pPGACS.err
 
 	return
 }
 
-func (lSCS *locateServiceContextStruct) ONCReplySuccess(pmapGetAddrResponseBuf []byte) {
+func (pPGACS *pmapProcGetAddrContextStruct) ONCReplySuccess(pmapGetAddrResponseBuf []byte) {
 	var (
 		pmapGetAddrResponse onc.PmapGetAddrResponseStruct
 	)
 
-	_, lSCS.err = xdr.Unpack(pmapGetAddrResponseBuf, &pmapGetAddrResponse)
-	if nil == lSCS.err {
-		lSCS.port = uint16(pmapGetAddrResponse.Port)
+	_, pPGACS.err = xdr.Unpack(pmapGetAddrResponseBuf, &pmapGetAddrResponse)
+	if nil == pPGACS.err {
+		if 0xFFFF < pmapGetAddrResponse.Port {
+			pPGACS.err = fmt.Errorf("doPmapProcGetAddr() got an invalid port number back: %v", pmapGetAddrResponse.Port)
+		} else {
+			pPGACS.port = uint16(pmapGetAddrResponse.Port)
+		}
 	}
 
-	lSCS.Done()
+	pPGACS.Done()
 }
 
-func (lSCS *locateServiceContextStruct) ONCReplyProgMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
-	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyProgMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
-	lSCS.Done()
+func (pPGACS *pmapProcGetAddrContextStruct) ONCReplyProgMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	pPGACS.err = fmt.Errorf("doPmapProcGetAddr() got callback ONCReplyProgMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	pPGACS.Done()
 }
 
-func (lSCS *locateServiceContextStruct) ONCReplyRpcMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
-	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyRpcMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
-	lSCS.Done()
+func (pPGACS *pmapProcGetAddrContextStruct) ONCReplyRpcMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	pPGACS.err = fmt.Errorf("doPmapProcGetAddr() got callback ONCReplyRpcMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	pPGACS.Done()
 }
 
-func (lSCS *locateServiceContextStruct) ONCReplyAuthError(stat uint32) {
-	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyAuthError(%v)", stat)
-	lSCS.Done()
+func (pPGACS *pmapProcGetAddrContextStruct) ONCReplyAuthError(stat uint32) {
+	pPGACS.err = fmt.Errorf("doPmapProcGetAddr() got callback ONCReplyAuthError(%v)", stat)
+	pPGACS.Done()
 }
 
-func (lSCS *locateServiceContextStruct) ONCReplyConnectionDown() {
-	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyConnectionDown()")
-	lSCS.Done()
+func (pPGACS *pmapProcGetAddrContextStruct) ONCReplyConnectionDown() {
+	pPGACS.err = fmt.Errorf("doPmapProcGetAddr() got callback ONCReplyConnectionDown()")
+	pPGACS.Done()
 }

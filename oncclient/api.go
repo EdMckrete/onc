@@ -26,8 +26,20 @@ func IssueUDPCall(udpConn *net.UDPConn, prog uint32, vers uint32, proc uint32, a
 	return
 }
 
-// LocateService returns the port number serving the specified program/version/protocol
-func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uint16, err error) {
-	port, err = locateService(addr, prog, vers, prot)
+// DoPmapProcSet sets the portmapper record for the specified program/version/protocol
+func DoPmapProcSet(prog uint32, vers uint32, prot uint32, port uint16) (err error) {
+	err = doPmapProcSet(prog, vers, prot, port)
+	return nil
+}
+
+// DoPmapProcUnset un-sets the portmapper record for the specified program/version/protocol
+func DoPmapProcUnset(prog uint32, vers uint32, prot uint32) (err error) {
+	err = doPmapProcUnset(prog, vers, prot)
+	return nil
+}
+
+// DoPmapProcGetAddr returns the port number serving the specified program/version/protocol
+func DoPmapProcGetAddr(addr string, prog uint32, vers uint32, prot uint32) (port uint16, err error) {
+	port, err = doPmapProcGetAddr(addr, prog, vers, prot)
 	return
 }
