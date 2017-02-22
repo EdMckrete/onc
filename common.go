@@ -199,3 +199,7 @@ type RpcbGetAddrResponseStruct struct { // Procedure-specific results for RpcbPr
 	//                                 For IPv6: x1:x2:x3:x4:x5:x6:x7:x8.p1.p2
 	//                                 Note: Only IPv4 will be supported for now
 }
+
+const (
+	MaxUDPPacketSize = int(0x10000)
+)
