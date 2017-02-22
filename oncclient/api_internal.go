@@ -567,6 +567,7 @@ func replyHandlerProcessPayload(rpcMsgReplyBodyHeaderBuf []byte, replyCallbacks 
 			return
 		}
 	default:
+		replyCallbacks.ONCReplyConnectionDown()
 		ok = false
 		return
 	}
@@ -575,62 +576,21 @@ func replyHandlerProcessPayload(rpcMsgReplyBodyHeaderBuf []byte, replyCallbacks 
 	return
 }
 
+type locateServiceContextStruct struct {
+	sync.WaitGroup
+	port uint16
+	err  error
+}
+
 func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uint16, err error) {
 	var (
-		bytesConsumed                 uint64
-		bytesRead                     int
-		bytesWritten                  int
-		callBuf                       []byte
-		callPmapMapping               onc.PmapMappingStruct
-		callPmapMappingBuf            []byte
-		callRecordFragmentMark        onc.RecordFragmentMarkStruct
-		callRecordFragmentMarkBuf     []byte
-		callRpcMsgCallBodyHeader      onc.RpcMsgCallBodyHeaderStruct
-		callRpcMsgCallBodyHeaderBuf   []byte
-		callRpcMsgHeader              onc.RpcMsgHeaderStruct
-		callRpcMsgHeaderBuf           []byte
-		replyBuf                      []byte
-		replyRecordFragmentMark       onc.RecordFragmentMarkStruct
-		replyRecordFragmentMarkBuf    []byte
-		replyRecordFragmentMarkBufLen uint64
-		tcpAddr                       *net.TCPAddr
-		tcpConn                       *net.TCPConn
-		udpAddr                       *net.UDPAddr
-		udpConn                       *net.UDPConn
-		xid                           uint32
+		callPmapMapping      onc.PmapMappingStruct
+		locateServiceContext *locateServiceContextStruct
+		tcpAddr              *net.TCPAddr
+		tcpConn              *net.TCPConn
+		udpAddr              *net.UDPAddr
+		udpConn              *net.UDPConn
 	)
-
-	xid = fetchXID()
-
-	callRpcMsgHeader = onc.RpcMsgHeaderStruct{
-		XID:   xid,
-		MType: onc.Call,
-	}
-
-	callRpcMsgHeaderBuf, err = xdr.Pack(callRpcMsgHeader)
-	if nil != err {
-		return
-	}
-
-	callRpcMsgCallBodyHeader = onc.RpcMsgCallBodyHeaderStruct{
-		RpcVers: onc.RpcVers2,
-		Prog:    onc.ProgNumPortMap,
-		Vers:    onc.PmapVers,
-		Proc:    onc.PmapProcGetAddr,
-		Cred: onc.OpaqueAuthStruct{
-			AuthFlavor: onc.AuthNone,
-			OpaqueBody: []byte{},
-		},
-		Verf: onc.OpaqueAuthStruct{
-			AuthFlavor: onc.AuthNone,
-			OpaqueBody: []byte{},
-		},
-	}
-
-	callRpcMsgCallBodyHeaderBuf, err = xdr.Pack(callRpcMsgCallBodyHeader)
-	if nil != err {
-		return
-	}
 
 	callPmapMapping = onc.PmapMappingStruct{
 		Prog: prog,
@@ -639,28 +599,12 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 		Port: 0,
 	}
 
-	callPmapMappingBuf, err = xdr.Pack(callPmapMapping)
-	if nil != err {
-		return
-	}
+	locateServiceContext = &locateServiceContextStruct{}
+
+	locateServiceContext.Add(1)
 
 	switch prot {
 	case onc.IPProtoTCP:
-		callRecordFragmentMark = onc.RecordFragmentMarkStruct{
-			LastFragmentFlagAndFragmentLength: 0x80000000 | uint32(len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(callPmapMappingBuf)),
-		}
-
-		callRecordFragmentMarkBuf, err = xdr.Pack(callRecordFragmentMark)
-		if nil != err {
-			return
-		}
-
-		callBuf = make([]byte, 0, len(callRecordFragmentMarkBuf)+len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(callPmapMappingBuf))
-		callBuf = append(callBuf, callRecordFragmentMarkBuf...)
-		callBuf = append(callBuf, callRpcMsgHeaderBuf...)
-		callBuf = append(callBuf, callRpcMsgCallBodyHeaderBuf...)
-		callBuf = append(callBuf, callPmapMappingBuf...)
-
 		tcpAddr, err = net.ResolveTCPAddr("tcp4", addr+":"+strconv.FormatUint(uint64(onc.PmapAndRpcbPort), 10))
 		if nil != err {
 			return
@@ -671,60 +615,11 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
-		_, err = io.CopyN(tcpConn, bytes.NewReader(callBuf), int64(len(callBuf)))
-		if nil != err {
-			_ = tcpConn.Close()
-			return
-		}
-
-		replyRecordFragmentMarkBufLen, err = xdr.Examine(replyRecordFragmentMark)
-		if nil != err {
-			_ = tcpConn.Close()
-			return
-		}
-
-		replyRecordFragmentMarkBuf = make([]byte, replyRecordFragmentMarkBufLen, replyRecordFragmentMarkBufLen)
-
-		_, err = io.ReadFull(tcpConn, replyRecordFragmentMarkBuf)
-		if nil != err {
-			_ = tcpConn.Close()
-			return
-		}
-
-		bytesConsumed, err = xdr.Unpack(replyRecordFragmentMarkBuf, &replyRecordFragmentMark)
-		if nil != err {
-			_ = tcpConn.Close()
-			return
-		}
-		if uint64(len(replyRecordFragmentMarkBuf)) != bytesConsumed {
-			_ = tcpConn.Close()
-			err = fmt.Errorf("problem unpacking replyRecordFragmentMarkBuf")
-			return
-		}
-		if 1 != (replyRecordFragmentMark.LastFragmentFlagAndFragmentLength >> 31) {
-			_ = tcpConn.Close()
-			err = fmt.Errorf("multi-fragment records not supported")
-			return
-		}
-
-		replyBuf = make([]byte, (replyRecordFragmentMark.LastFragmentFlagAndFragmentLength & 0x7FFFFFFF), (replyRecordFragmentMark.LastFragmentFlagAndFragmentLength & 0x7FFFFFFF))
-
-		_, err = io.ReadFull(tcpConn, replyBuf)
-		if nil != err {
-			_ = tcpConn.Close()
-			return
-		}
-
-		err = tcpConn.Close()
+		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, locateServiceContext)
 		if nil != err {
 			return
 		}
 	case onc.IPProtoUDP:
-		callBuf = make([]byte, 0, len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(callPmapMappingBuf))
-		callBuf = append(callBuf, callRpcMsgHeaderBuf...)
-		callBuf = append(callBuf, callRpcMsgCallBodyHeaderBuf...)
-		callBuf = append(callBuf, callPmapMappingBuf...)
-
 		udpAddr, err = net.ResolveUDPAddr("udp4", addr+":"+strconv.FormatUint(uint64(onc.PmapAndRpcbPort), 10))
 		if nil != err {
 			return
@@ -735,33 +630,7 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
-		bytesWritten, err = udpConn.Write(callBuf)
-		if nil != err {
-			_ = udpConn.Close()
-			return
-		}
-		if len(callBuf) != bytesWritten {
-			_ = udpConn.Close()
-			err = fmt.Errorf("unable to write callBuf to UDP socket")
-			return
-		}
-
-		replyBuf = make([]byte, onc.MaxUDPPacketSize, onc.MaxUDPPacketSize)
-
-		bytesRead, err = udpConn.Read(replyBuf)
-		if nil != err {
-			_ = udpConn.Close()
-			return
-		}
-		if 0 == bytesRead {
-			_ = udpConn.Close()
-			err = fmt.Errorf("unable to read replyBuf from UDP socket")
-			return
-		}
-
-		replyBuf = replyBuf[:bytesRead]
-
-		err = udpConn.Close()
+		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, locateServiceContext)
 		if nil != err {
 			return
 		}
@@ -770,8 +639,43 @@ func locateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 		return
 	}
 
-	port = onc.PmapAndRpcbPort // TODO: Actually need to process replyBuf to get it
+	locateServiceContext.Wait()
 
-	err = nil
+	port = locateServiceContext.port
+	err = locateServiceContext.err
+
 	return
+}
+
+func (lSCS *locateServiceContextStruct) ONCReplySuccess(pmapGetAddrResponseBuf []byte) {
+	var (
+		pmapGetAddrResponse onc.PmapGetAddrResponseStruct
+	)
+
+	_, lSCS.err = xdr.Unpack(pmapGetAddrResponseBuf, &pmapGetAddrResponse)
+	if nil == lSCS.err {
+		lSCS.port = uint16(pmapGetAddrResponse.Port)
+	}
+
+	lSCS.Done()
+}
+
+func (lSCS *locateServiceContextStruct) ONCReplyProgMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyProgMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	lSCS.Done()
+}
+
+func (lSCS *locateServiceContextStruct) ONCReplyRpcMismatch(mismatchInfoLow uint32, mismatchInfoHigh uint32) {
+	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyRpcMismatch(%v, %v)", mismatchInfoLow, mismatchInfoHigh)
+	lSCS.Done()
+}
+
+func (lSCS *locateServiceContextStruct) ONCReplyAuthError(stat uint32) {
+	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyAuthError(%v)", stat)
+	lSCS.Done()
+}
+
+func (lSCS *locateServiceContextStruct) ONCReplyConnectionDown() {
+	lSCS.err = fmt.Errorf("locateService() got callback ONCReplyConnectionDown()")
+	lSCS.Done()
 }
