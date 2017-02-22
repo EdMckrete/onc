@@ -29,7 +29,7 @@ func FetchXID() (xid uint32) {
 }
 
 // LocateService returns the port number serving the specified program/version/protocol.
-func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uint32, err error) {
+func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uint16, err error) {
 	var (
 		bytesConsumed                 uint64
 		bytesRead                     int
@@ -137,7 +137,7 @@ func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
-		replyRecordFragmentMarkBuf = make([]byte, 0, replyRecordFragmentMarkBufLen)
+		replyRecordFragmentMarkBuf = make([]byte, replyRecordFragmentMarkBufLen, replyRecordFragmentMarkBufLen)
 
 		_, err = io.ReadFull(tcpConn, replyRecordFragmentMarkBuf)
 		if nil != err {
@@ -161,7 +161,7 @@ func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
-		replyBuf = make([]byte, 0, (replyRecordFragmentMark.LastFragmentFlagAndFragmentLength & 0x7FFFFFFF))
+		replyBuf = make([]byte, (replyRecordFragmentMark.LastFragmentFlagAndFragmentLength & 0x7FFFFFFF), (replyRecordFragmentMark.LastFragmentFlagAndFragmentLength & 0x7FFFFFFF))
 
 		_, err = io.ReadFull(tcpConn, replyBuf)
 		if nil != err {
@@ -200,7 +200,7 @@ func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
-		replyBuf = make([]byte, 0, onc.MaxUDPPacketSize)
+		replyBuf = make([]byte, onc.MaxUDPPacketSize, onc.MaxUDPPacketSize)
 
 		bytesRead, err = udpConn.Read(replyBuf)
 		if nil != err {
@@ -213,6 +213,8 @@ func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 			return
 		}
 
+		replyBuf = replyBuf[:bytesRead]
+
 		err = udpConn.Close()
 		if nil != err {
 			return
@@ -221,6 +223,8 @@ func LocateService(addr string, prog uint32, vers uint32, prot uint32) (port uin
 		err = fmt.Errorf("prot == %v not supported", prot)
 		return
 	}
+
+	port = onc.PmapAndRpcbPort // TODO: Actually need to process replyBuf to get it
 
 	err = nil
 	return

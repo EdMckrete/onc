@@ -133,7 +133,7 @@ type RecordFragmentMarkStruct struct { //                                     Us
 }
 
 const (
-	PmapAndRpcbPort = uint32(111) // Used for Portmapper (Program Version 2) & Rpcbind (Program Versions 3 & 4)
+	PmapAndRpcbPort = uint16(111) // Used for Portmapper (Program Version 2) & Rpcbind (Program Versions 3 & 4)
 	//                               Note 1: Must actually fit in a uint16
 	//                               Note 2: Portmapper/Rpcbind typically listens on both UDP and TCP
 )
