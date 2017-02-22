@@ -13,6 +13,14 @@ type OpaqueAuthStruct struct {
 	OpaqueBody []byte `XDR_Name:"Variable-Length Opaque Data" XDR_MaxSize:"400"`
 }
 
+type AuthSysBodyStruct struct {
+	Stamp       uint32   `XDR_Name:"Unsigned Integer"`
+	MachineName string   `XDR_Name:"String" XDR_MaxSize:"255"`
+	UID         uint32   `XDR_Name:"Unsigned Integer"`
+	GID         uint32   `XDR_Name:"Unsigned Integer"`
+	GIDs        []uint32 `XDR_Name:"Variable-Length Array" XDR_MaxSize:"16"`
+}
+
 const ( // Program Number Assignment
 	ProgNumPortMap = uint32(100000)
 	ProgNumNFS     = uint32(100003)
