@@ -4,59 +4,10 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"sync"
 
 	"github.com/swiftstack/onc"
 	"github.com/swiftstack/xdr"
 )
-
-type serverProgVersSetMap map[uint32]bool // Program Version Set (map entry exists and is true if the program supports the map key's version)
-
-type serverProgSetMap map[uint32]serverProgVersSetMap // Program Set (map entry exists if the map key's program is supported)
-
-type tcpServerConnStruct struct {
-	sync.Mutex
-	sync.WaitGroup
-	tcpConn   *net.TCPConn
-	tcpServer *tcpServerStruct
-}
-
-type tcpServerStruct struct {
-	sync.Mutex
-	sync.WaitGroup
-	port             uint16
-	serverProgSet    serverProgSetMap
-	tcpAddr          *net.TCPAddr
-	tcpListener      *net.TCPListener
-	tcpServerConnMap map[*net.TCPConn]*tcpServerConnStruct
-}
-
-type udpServerConnStruct struct {
-	udpAddr   *net.UDPAddr // UDP is actually connectionless, so we just remember remote UDPAddr here
-	udpServer *udpServerStruct
-}
-
-type udpServerStruct struct {
-	sync.Mutex
-	sync.WaitGroup
-	port          uint16
-	serverProgSet serverProgSetMap
-	udpAddr       *net.UDPAddr
-	udpConn       *net.UDPConn
-}
-
-type globalsStruct struct {
-	sync.Mutex
-	tcpServerMap map[uint16]*tcpServerStruct // Key is tcpServerStruct.port
-	udpServerMap map[uint16]*udpServerStruct // Key is udpServerStruct.port
-}
-
-var globals globalsStruct
-
-func init() {
-	globals.tcpServerMap = make(map[uint16]*tcpServerStruct)
-	globals.udpServerMap = make(map[uint16]*udpServerStruct)
-}
 
 func startServer(prot uint32, port uint16, progVersList []ProgVersStruct, callbacks RequestCallbacks) (err error) {
 	var (
@@ -94,6 +45,7 @@ func startServer(prot uint32, port uint16, progVersList []ProgVersStruct, callba
 		tcpServer = &tcpServerStruct{
 			port:             port,
 			serverProgSet:    serverProgSet,
+			callbacks:        callbacks,
 			tcpServerConnMap: make(map[*net.TCPConn]*tcpServerConnStruct),
 		}
 
@@ -127,6 +79,7 @@ func startServer(prot uint32, port uint16, progVersList []ProgVersStruct, callba
 		udpServer = &udpServerStruct{
 			port:          port,
 			serverProgSet: serverProgSet,
+			callbacks:     callbacks,
 		}
 
 		udpServer.udpAddr, err = net.ResolveUDPAddr("udp4", ":"+strconv.FormatUint(uint64(udpServer.port), 10))
