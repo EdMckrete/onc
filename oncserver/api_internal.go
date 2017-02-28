@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/swiftstack/onc"
+	"github.com/swiftstack/xdr"
 )
 
 type serverProgVersSetMap map[uint32]bool // Program Version Set (map entry exists and is true if the program supports the map key's version)
@@ -16,7 +17,8 @@ type serverProgSetMap map[uint32]serverProgVersSetMap // Program Set (map entry 
 type tcpServerConnStruct struct {
 	sync.Mutex
 	sync.WaitGroup
-	tcpConn *net.TCPConn
+	tcpConn   *net.TCPConn
+	tcpServer *tcpServerStruct
 }
 
 type tcpServerStruct struct {
@@ -27,6 +29,11 @@ type tcpServerStruct struct {
 	tcpAddr          *net.TCPAddr
 	tcpListener      *net.TCPListener
 	tcpServerConnMap map[*net.TCPConn]*tcpServerConnStruct
+}
+
+type udpServerConnStruct struct {
+	udpAddr   *net.UDPAddr // UDP is actually connectionless, so we just remember remote UDPAddr here
+	udpServer *udpServerStruct
 }
 
 type udpServerStruct struct {
@@ -225,26 +232,462 @@ func stopServer(prot uint32, port uint16) (err error) {
 }
 
 func sendDeniedRpcMismatchReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
-	err = nil // TODO
+	var (
+		ok                                    bool
+		recordFragmentMark                    onc.RecordFragmentMarkStruct
+		recordFragmentMarkBuf                 []byte
+		replyMsgBuf                           []byte
+		replyMsgLength                        uint32
+		rpcMsgHeader                          onc.RpcMsgHeaderStruct
+		rpcMsgHeaderBuf                       []byte
+		rpcMsgReplyBodyHeader                 onc.RpcMsgReplyBodyHeaderStruct
+		rpcMsgReplyBodyHeaderBuf              []byte
+		rpcMsgReplyBodyRejectedHeader         onc.RpcMsgReplyBodyRejectedHeaderStruct
+		rpcMsgReplyBodyRejectedHeaderBuf      []byte
+		rpcMsgReplyBodyRejectedRpcMismatch    onc.RpcMsgReplyBodyRejectedRpcMismatchStruct
+		rpcMsgReplyBodyRejectedRpcMismatchBuf []byte
+		tcpServerConn                         *tcpServerConnStruct
+		udpServerConn                         *udpServerConnStruct
+	)
+
+	rpcMsgHeader.XID = xid
+	rpcMsgHeader.MType = onc.Reply
+
+	rpcMsgHeaderBuf, err = xdr.Pack(rpcMsgHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyHeader.Stat = onc.MsgDenied
+
+	rpcMsgReplyBodyHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyRejectedHeader.Stat = onc.RpcMismatch
+
+	rpcMsgReplyBodyRejectedHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyRejectedHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyRejectedRpcMismatch.MismatchInfoLow = mismatchInfoLow
+	rpcMsgReplyBodyRejectedRpcMismatch.MismatchInfoHigh = mismatchInfoHigh
+
+	rpcMsgReplyBodyRejectedRpcMismatchBuf, err = xdr.Pack(rpcMsgReplyBodyRejectedRpcMismatch)
+	if nil != err {
+		return
+	}
+
+	replyMsgLength = uint32(len(rpcMsgHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyRejectedHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyRejectedRpcMismatchBuf))
+
+	tcpServerConn, ok = connHandle.(*tcpServerConnStruct)
+	if ok {
+		udpServerConn = nil
+		recordFragmentMark.LastFragmentFlagAndFragmentLength = 0x80000000 | replyMsgLength
+
+		recordFragmentMarkBuf, err = xdr.Pack(recordFragmentMark)
+		if nil != err {
+			return
+		}
+
+		replyMsgBuf = make([]byte, 0, uint32(len(recordFragmentMarkBuf))+replyMsgLength)
+
+		replyMsgBuf = append(replyMsgBuf, recordFragmentMarkBuf...)
+	} else {
+		udpServerConn, ok = connHandle.(*udpServerConnStruct)
+		if ok {
+			replyMsgBuf = make([]byte, 0, replyMsgLength)
+		} else {
+			err = fmt.Errorf("connHandle must be one of *tcpServerConnStruct or *udpServerStruct")
+			return
+		}
+	}
+
+	replyMsgBuf = append(replyMsgBuf, rpcMsgHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyRejectedHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyRejectedRpcMismatchBuf...)
+
+	if nil == udpServerConn {
+		tcpServerConn.Lock()
+		_, err = tcpServerConn.tcpConn.Write(replyMsgBuf)
+		tcpServerConn.Unlock()
+	} else {
+		udpServerConn.udpServer.Lock()
+		_, err = udpServerConn.udpServer.udpConn.WriteToUDP(replyMsgBuf, udpServerConn.udpAddr)
+		udpServerConn.udpServer.Unlock()
+	}
+
 	return
 }
 
 func sendDeniedAuthErrorReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, stat uint32) (err error) {
-	err = nil // TODO
+	var (
+		ok                                  bool
+		recordFragmentMark                  onc.RecordFragmentMarkStruct
+		recordFragmentMarkBuf               []byte
+		replyMsgBuf                         []byte
+		replyMsgLength                      uint32
+		rpcMsgHeader                        onc.RpcMsgHeaderStruct
+		rpcMsgHeaderBuf                     []byte
+		rpcMsgReplyBodyHeader               onc.RpcMsgReplyBodyHeaderStruct
+		rpcMsgReplyBodyHeaderBuf            []byte
+		rpcMsgReplyBodyRejectedAuthError    onc.RpcMsgReplyBodyRejectedAuthErrorStruct
+		rpcMsgReplyBodyRejectedAuthErrorBuf []byte
+		rpcMsgReplyBodyRejectedHeader       onc.RpcMsgReplyBodyRejectedHeaderStruct
+		rpcMsgReplyBodyRejectedHeaderBuf    []byte
+		tcpServerConn                       *tcpServerConnStruct
+		udpServerConn                       *udpServerConnStruct
+	)
+
+	rpcMsgHeader.XID = xid
+	rpcMsgHeader.MType = onc.Reply
+
+	rpcMsgHeaderBuf, err = xdr.Pack(rpcMsgHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyHeader.Stat = onc.MsgDenied
+
+	rpcMsgReplyBodyHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyRejectedHeader.Stat = onc.AuthError
+
+	rpcMsgReplyBodyRejectedHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyRejectedHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyRejectedAuthError.Stat = stat
+
+	rpcMsgReplyBodyRejectedAuthErrorBuf, err = xdr.Pack(rpcMsgReplyBodyRejectedAuthError)
+	if nil != err {
+		return
+	}
+
+	replyMsgLength = uint32(len(rpcMsgHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyRejectedHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyRejectedAuthErrorBuf))
+
+	tcpServerConn, ok = connHandle.(*tcpServerConnStruct)
+	if ok {
+		udpServerConn = nil
+		recordFragmentMark.LastFragmentFlagAndFragmentLength = 0x80000000 | replyMsgLength
+
+		recordFragmentMarkBuf, err = xdr.Pack(recordFragmentMark)
+		if nil != err {
+			return
+		}
+
+		replyMsgBuf = make([]byte, 0, uint32(len(recordFragmentMarkBuf))+replyMsgLength)
+
+		replyMsgBuf = append(replyMsgBuf, recordFragmentMarkBuf...)
+	} else {
+		udpServerConn, ok = connHandle.(*udpServerConnStruct)
+		if ok {
+			replyMsgBuf = make([]byte, 0, replyMsgLength)
+		} else {
+			err = fmt.Errorf("connHandle must be one of *tcpServerConnStruct or *udpServerStruct")
+			return
+		}
+	}
+
+	replyMsgBuf = append(replyMsgBuf, rpcMsgHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyRejectedHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyRejectedAuthErrorBuf...)
+
+	if nil == udpServerConn {
+		tcpServerConn.Lock()
+		_, err = tcpServerConn.tcpConn.Write(replyMsgBuf)
+		tcpServerConn.Unlock()
+	} else {
+		udpServerConn.udpServer.Lock()
+		_, err = udpServerConn.udpServer.udpConn.WriteToUDP(replyMsgBuf, udpServerConn.udpAddr)
+		udpServerConn.udpServer.Unlock()
+	}
+
 	return
 }
 
 func sendAcceptedSuccess(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, results []byte) (err error) {
-	err = nil // TODO
+	var (
+		ok                               bool
+		recordFragmentMark               onc.RecordFragmentMarkStruct
+		recordFragmentMarkBuf            []byte
+		replyMsgBuf                      []byte
+		replyMsgLength                   uint32
+		rpcMsgHeader                     onc.RpcMsgHeaderStruct
+		rpcMsgHeaderBuf                  []byte
+		rpcMsgReplyBodyHeader            onc.RpcMsgReplyBodyHeaderStruct
+		rpcMsgReplyBodyHeaderBuf         []byte
+		rpcMsgReplyBodyAcceptedHeader    onc.RpcMsgReplyBodyAcceptedHeaderStruct
+		rpcMsgReplyBodyAcceptedHeaderBuf []byte
+		tcpServerConn                    *tcpServerConnStruct
+		udpServerConn                    *udpServerConnStruct
+	)
+
+	rpcMsgHeader.XID = xid
+	rpcMsgHeader.MType = onc.Reply
+
+	rpcMsgHeaderBuf, err = xdr.Pack(rpcMsgHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyHeader.Stat = onc.MsgAccepted
+
+	rpcMsgReplyBodyHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyAcceptedHeader.Verf.AuthFlavor = onc.AuthNone
+	rpcMsgReplyBodyAcceptedHeader.Verf.OpaqueBody = []byte{}
+
+	rpcMsgReplyBodyAcceptedHeader.Stat = onc.Success
+
+	rpcMsgReplyBodyAcceptedHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyAcceptedHeader)
+	if nil != err {
+		return
+	}
+
+	replyMsgLength = uint32(len(rpcMsgHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyAcceptedHeaderBuf))
+	replyMsgLength += uint32(len(results))
+
+	tcpServerConn, ok = connHandle.(*tcpServerConnStruct)
+	if ok {
+		udpServerConn = nil
+		recordFragmentMark.LastFragmentFlagAndFragmentLength = 0x80000000 | replyMsgLength
+
+		recordFragmentMarkBuf, err = xdr.Pack(recordFragmentMark)
+		if nil != err {
+			return
+		}
+
+		replyMsgBuf = make([]byte, 0, uint32(len(recordFragmentMarkBuf))+replyMsgLength)
+
+		replyMsgBuf = append(replyMsgBuf, recordFragmentMarkBuf...)
+	} else {
+		udpServerConn, ok = connHandle.(*udpServerConnStruct)
+		if ok {
+			replyMsgBuf = make([]byte, 0, replyMsgLength)
+		} else {
+			err = fmt.Errorf("connHandle must be one of *tcpServerConnStruct or *udpServerStruct")
+			return
+		}
+	}
+
+	replyMsgBuf = append(replyMsgBuf, rpcMsgHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyAcceptedHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, results...)
+
+	if nil == udpServerConn {
+		tcpServerConn.Lock()
+		_, err = tcpServerConn.tcpConn.Write(replyMsgBuf)
+		tcpServerConn.Unlock()
+	} else {
+		udpServerConn.udpServer.Lock()
+		_, err = udpServerConn.udpServer.udpConn.WriteToUDP(replyMsgBuf, udpServerConn.udpAddr)
+		udpServerConn.udpServer.Unlock()
+	}
+
 	return
 }
 
 func sendAcceptedProgMismatchReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
-	err = nil // TODO
+	var (
+		ok                                    bool
+		recordFragmentMark                    onc.RecordFragmentMarkStruct
+		recordFragmentMarkBuf                 []byte
+		replyMsgLength                        uint32
+		replyMsgBuf                           []byte
+		rpcMsgHeader                          onc.RpcMsgHeaderStruct
+		rpcMsgHeaderBuf                       []byte
+		rpcMsgReplyBodyHeader                 onc.RpcMsgReplyBodyHeaderStruct
+		rpcMsgReplyBodyHeaderBuf              []byte
+		rpcMsgReplyBodyAcceptedHeader         onc.RpcMsgReplyBodyAcceptedHeaderStruct
+		rpcMsgReplyBodyAcceptedHeaderBuf      []byte
+		pcMsgReplyBodyAcceptedProgMismatch    onc.RpcMsgReplyBodyAcceptedProgMismatchStruct
+		pcMsgReplyBodyAcceptedProgMismatchBuf []byte
+		tcpServerConn                         *tcpServerConnStruct
+		udpServerConn                         *udpServerConnStruct
+	)
+
+	rpcMsgHeader.XID = xid
+	rpcMsgHeader.MType = onc.Reply
+
+	rpcMsgHeaderBuf, err = xdr.Pack(rpcMsgHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyHeader.Stat = onc.MsgAccepted
+
+	rpcMsgReplyBodyHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyAcceptedHeader.Verf.AuthFlavor = onc.AuthNone
+	rpcMsgReplyBodyAcceptedHeader.Verf.OpaqueBody = []byte{}
+
+	rpcMsgReplyBodyAcceptedHeader.Stat = onc.ProgMismatch
+
+	rpcMsgReplyBodyAcceptedHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyAcceptedHeader)
+	if nil != err {
+		return
+	}
+
+	pcMsgReplyBodyAcceptedProgMismatch.MismatchInfoLow = mismatchInfoLow
+	pcMsgReplyBodyAcceptedProgMismatch.MismatchInfoHigh = mismatchInfoHigh
+
+	pcMsgReplyBodyAcceptedProgMismatchBuf, err = xdr.Pack(pcMsgReplyBodyAcceptedProgMismatch)
+	if nil != err {
+		return
+	}
+
+	replyMsgLength = uint32(len(rpcMsgHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyAcceptedHeaderBuf))
+	replyMsgLength += uint32(len(pcMsgReplyBodyAcceptedProgMismatchBuf))
+
+	tcpServerConn, ok = connHandle.(*tcpServerConnStruct)
+	if ok {
+		udpServerConn = nil
+		recordFragmentMark.LastFragmentFlagAndFragmentLength = 0x80000000 | replyMsgLength
+
+		recordFragmentMarkBuf, err = xdr.Pack(recordFragmentMark)
+		if nil != err {
+			return
+		}
+
+		replyMsgBuf = make([]byte, 0, uint32(len(recordFragmentMarkBuf))+replyMsgLength)
+
+		replyMsgBuf = append(replyMsgBuf, recordFragmentMarkBuf...)
+	} else {
+		udpServerConn, ok = connHandle.(*udpServerConnStruct)
+		if ok {
+			replyMsgBuf = make([]byte, 0, replyMsgLength)
+		} else {
+			err = fmt.Errorf("connHandle must be one of *tcpServerConnStruct or *udpServerStruct")
+			return
+		}
+	}
+
+	replyMsgBuf = append(replyMsgBuf, rpcMsgHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyAcceptedHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, pcMsgReplyBodyAcceptedProgMismatchBuf...)
+
+	if nil == udpServerConn {
+		tcpServerConn.Lock()
+		_, err = tcpServerConn.tcpConn.Write(replyMsgBuf)
+		tcpServerConn.Unlock()
+	} else {
+		udpServerConn.udpServer.Lock()
+		_, err = udpServerConn.udpServer.udpConn.WriteToUDP(replyMsgBuf, udpServerConn.udpAddr)
+		udpServerConn.udpServer.Unlock()
+	}
+
 	return
 }
 
 func sendAcceptedOtherErrorReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, stat uint32) (err error) {
-	err = nil // TODO
+	var (
+		ok                               bool
+		recordFragmentMark               onc.RecordFragmentMarkStruct
+		recordFragmentMarkBuf            []byte
+		replyMsgLength                   uint32
+		replyMsgBuf                      []byte
+		rpcMsgHeader                     onc.RpcMsgHeaderStruct
+		rpcMsgHeaderBuf                  []byte
+		rpcMsgReplyBodyHeader            onc.RpcMsgReplyBodyHeaderStruct
+		rpcMsgReplyBodyHeaderBuf         []byte
+		rpcMsgReplyBodyAcceptedHeader    onc.RpcMsgReplyBodyAcceptedHeaderStruct
+		rpcMsgReplyBodyAcceptedHeaderBuf []byte
+		tcpServerConn                    *tcpServerConnStruct
+		udpServerConn                    *udpServerConnStruct
+	)
+
+	rpcMsgHeader.XID = xid
+	rpcMsgHeader.MType = onc.Reply
+
+	rpcMsgHeaderBuf, err = xdr.Pack(rpcMsgHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyHeader.Stat = onc.MsgAccepted
+
+	rpcMsgReplyBodyHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyHeader)
+	if nil != err {
+		return
+	}
+
+	rpcMsgReplyBodyAcceptedHeader.Verf.AuthFlavor = onc.AuthNone
+	rpcMsgReplyBodyAcceptedHeader.Verf.OpaqueBody = []byte{}
+
+	rpcMsgReplyBodyAcceptedHeader.Stat = stat
+
+	rpcMsgReplyBodyAcceptedHeaderBuf, err = xdr.Pack(rpcMsgReplyBodyAcceptedHeader)
+	if nil != err {
+		return
+	}
+
+	replyMsgLength = uint32(len(rpcMsgHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyHeaderBuf))
+	replyMsgLength += uint32(len(rpcMsgReplyBodyAcceptedHeaderBuf))
+
+	tcpServerConn, ok = connHandle.(*tcpServerConnStruct)
+	if ok {
+		udpServerConn = nil
+		recordFragmentMark.LastFragmentFlagAndFragmentLength = 0x80000000 | replyMsgLength
+
+		recordFragmentMarkBuf, err = xdr.Pack(recordFragmentMark)
+		if nil != err {
+			return
+		}
+
+		replyMsgBuf = make([]byte, 0, uint32(len(recordFragmentMarkBuf))+replyMsgLength)
+
+		replyMsgBuf = append(replyMsgBuf, recordFragmentMarkBuf...)
+	} else {
+		udpServerConn, ok = connHandle.(*udpServerConnStruct)
+		if ok {
+			replyMsgBuf = make([]byte, 0, replyMsgLength)
+		} else {
+			err = fmt.Errorf("connHandle must be one of *tcpServerConnStruct or *udpServerStruct")
+			return
+		}
+	}
+
+	replyMsgBuf = append(replyMsgBuf, rpcMsgHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyHeaderBuf...)
+	replyMsgBuf = append(replyMsgBuf, rpcMsgReplyBodyAcceptedHeaderBuf...)
+
+	if nil == udpServerConn {
+		tcpServerConn.Lock()
+		_, err = tcpServerConn.tcpConn.Write(replyMsgBuf)
+		tcpServerConn.Unlock()
+	} else {
+		udpServerConn.udpServer.Lock()
+		_, err = udpServerConn.udpServer.udpConn.WriteToUDP(replyMsgBuf, udpServerConn.udpAddr)
+		udpServerConn.udpServer.Unlock()
+	}
+
 	return
 }
