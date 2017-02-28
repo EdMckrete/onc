@@ -19,18 +19,14 @@ type RequestCallbacks interface {
 }
 
 // StartServer initiates a server on the specified protocol/port for the listed ONC RPC Programs/Versions.
-//
-// The caller may optionally request that the service(s) be registered with the local portmapper/rpcbind instance.
-func StartServer(prot uint32, port uint16, progVersList []ProgVersStruct, register bool, callbacks RequestCallbacks) (err error) {
-	err = startServer(prot, port, progVersList, register, callbacks)
+func StartServer(prot uint32, port uint16, progVersList []ProgVersStruct, callbacks RequestCallbacks) (err error) {
+	err = startServer(prot, port, progVersList, callbacks)
 	return
 }
 
 // StopServer halts serving of the ONC RPC Programs/Versions on the specified protocol/port.
-//
-// The caller may optionally request that the services() be deregistered from the local portmapper/rpcbind instance.
-func StopServer(prot uint32, port uint16, deregister bool) (err error) {
-	err = stopServer(prot, port, deregister)
+func StopServer(prot uint32, port uint16) (err error) {
+	err = stopServer(prot, port)
 	return
 }
 
