@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/swiftstack/onc"
 	"github.com/swiftstack/xdr"
@@ -47,7 +49,10 @@ func init() {
 		panic(err)
 	}
 
-	globals.nextXID = 0
+	rand.Seed(int64(time.Now().Nanosecond()))
+
+	globals.nextXID = rand.Uint32()
+
 	globals.tcpConnContextMap = make(map[*net.TCPConn]*tcpConnContextStruct)
 	globals.udpConnContextMap = make(map[*net.UDPConn]*udpConnContextStruct)
 }
