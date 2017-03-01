@@ -14,13 +14,13 @@ func startServer(prot uint32, port uint16, progVersList []ProgVersStruct, callba
 		ok                bool
 		progVers          ProgVersStruct
 		serverProgSet     serverProgSetMap
-		serverProgVersSet serverProgVersSetMap
+		serverProgVersSet *serverProgVersSetStruct
 		tcpServer         *tcpServerStruct
 		udpServer         *udpServerStruct
 		vers              uint32
 	)
 
-	serverProgSet = make(map[uint32]serverProgVersSetMap)
+	serverProgSet = make(map[uint32]*serverProgVersSetStruct)
 
 	for _, progVers = range progVersList {
 		_, ok = serverProgSet[progVers.Prog]
@@ -28,15 +28,27 @@ func startServer(prot uint32, port uint16, progVersList []ProgVersStruct, callba
 			err = fmt.Errorf("prog (%v) appears more than once in progVersList", progVers.Prog)
 			return
 		}
-		serverProgVersSet = make(map[uint32]bool)
+		if 0 == len(progVers.VersList) {
+			err = fmt.Errorf("prog (%v) must contain at least one supported vers", progVers.Prog)
+			return
+		}
+		serverProgVersSet.minVers = 0xFFFFFFFF
+		serverProgVersSet.maxVers = 0x00000000
+		serverProgVersSet.versMap = make(map[uint32]bool)
 		serverProgSet[progVers.Prog] = serverProgVersSet
 		for _, vers = range progVers.VersList {
-			_, ok = serverProgVersSet[vers]
+			_, ok = serverProgVersSet.versMap[vers]
 			if ok {
 				err = fmt.Errorf("vers (%v) appears more than once for prog (%v) in progVersList", vers, progVers.Prog)
 				return
 			}
-			serverProgVersSet[vers] = true
+			if vers < serverProgVersSet.minVers {
+				serverProgVersSet.minVers = vers
+			}
+			if vers > serverProgVersSet.maxVers {
+				serverProgVersSet.maxVers = vers
+			}
+			serverProgVersSet.versMap[vers] = true
 		}
 	}
 
@@ -184,7 +196,7 @@ func stopServer(prot uint32, port uint16) (err error) {
 	return
 }
 
-func sendDeniedRpcMismatchReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
+func sendDeniedRpcMismatchReply(connHandle ConnHandle, xid uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
 	var (
 		ok                                    bool
 		recordFragmentMark                    onc.RecordFragmentMarkStruct
@@ -279,7 +291,7 @@ func sendDeniedRpcMismatchReply(connHandle ConnHandle, xid uint32, prog uint32, 
 	return
 }
 
-func sendDeniedAuthErrorReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, stat uint32) (err error) {
+func sendDeniedAuthErrorReply(connHandle ConnHandle, xid uint32, stat uint32) (err error) {
 	var (
 		ok                                  bool
 		recordFragmentMark                  onc.RecordFragmentMarkStruct
@@ -373,7 +385,7 @@ func sendDeniedAuthErrorReply(connHandle ConnHandle, xid uint32, prog uint32, ve
 	return
 }
 
-func sendAcceptedSuccess(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, results []byte) (err error) {
+func sendAcceptedSuccess(connHandle ConnHandle, xid uint32, results []byte) (err error) {
 	var (
 		ok                               bool
 		recordFragmentMark               onc.RecordFragmentMarkStruct
@@ -461,7 +473,7 @@ func sendAcceptedSuccess(connHandle ConnHandle, xid uint32, prog uint32, vers ui
 	return
 }
 
-func sendAcceptedProgMismatchReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
+func sendAcceptedProgMismatchReply(connHandle ConnHandle, xid uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
 	var (
 		ok                                    bool
 		recordFragmentMark                    onc.RecordFragmentMarkStruct
@@ -559,7 +571,7 @@ func sendAcceptedProgMismatchReply(connHandle ConnHandle, xid uint32, prog uint3
 	return
 }
 
-func sendAcceptedOtherErrorReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, stat uint32) (err error) {
+func sendAcceptedOtherErrorReply(connHandle ConnHandle, xid uint32, stat uint32) (err error) {
 	var (
 		ok                               bool
 		recordFragmentMark               onc.RecordFragmentMarkStruct

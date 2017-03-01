@@ -31,31 +31,31 @@ func StopServer(prot uint32, port uint16) (err error) {
 }
 
 // SendDeniedRpcMismatchReply is used to send a MsgDenied-RpcMismatch reply for an ONC RPC reqest.
-func SendDeniedRpcMismatchReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
-	err = sendDeniedRpcMismatchReply(connHandle, xid, prog, vers, proc, mismatchInfoLow, mismatchInfoHigh)
+func SendDeniedRpcMismatchReply(connHandle ConnHandle, xid uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
+	err = sendDeniedRpcMismatchReply(connHandle, xid, mismatchInfoLow, mismatchInfoHigh)
 	return
 }
 
 // SendDeniedAuthErrorReply is used to send a MsgDenied-AuthError reply for an ONC RPC request.
-func SendDeniedAuthErrorReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, stat uint32) (err error) {
-	err = sendDeniedAuthErrorReply(connHandle, xid, prog, vers, proc, stat)
+func SendDeniedAuthErrorReply(connHandle ConnHandle, xid uint32, stat uint32) (err error) {
+	err = sendDeniedAuthErrorReply(connHandle, xid, stat)
 	return
 }
 
 // SendAcceptedSuccess is used to send a Success reply for an ONC RPC request.
-func SendAcceptedSuccess(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, results []byte) (err error) {
-	err = sendAcceptedSuccess(connHandle, xid, prog, vers, proc, results)
+func SendAcceptedSuccess(connHandle ConnHandle, xid uint32, results []byte) (err error) {
+	err = sendAcceptedSuccess(connHandle, xid, results)
 	return
 }
 
 // SendAcceptedProgMismatchReply is used to send a ProgMismatch reply for an ONC RPC request.
-func SendAcceptedProgMismatchReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
-	err = sendAcceptedProgMismatchReply(connHandle, xid, prog, vers, proc, mismatchInfoLow, mismatchInfoHigh)
+func SendAcceptedProgMismatchReply(connHandle ConnHandle, xid uint32, mismatchInfoLow uint32, mismatchInfoHigh uint32) (err error) {
+	err = sendAcceptedProgMismatchReply(connHandle, xid, mismatchInfoLow, mismatchInfoHigh)
 	return
 }
 
 // SendAcceptedOtherErrorReply is used to send a ProgUnavail, ProcUnavail, GarbageArgs, or SystemErr reply for an ONC RPC request.
-func SendAcceptedOtherErrorReply(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, stat uint32) (err error) {
-	err = sendAcceptedOtherErrorReply(connHandle, xid, prog, vers, proc, stat)
+func SendAcceptedOtherErrorReply(connHandle ConnHandle, xid uint32, stat uint32) (err error) {
+	err = sendAcceptedOtherErrorReply(connHandle, xid, stat)
 	return
 }
