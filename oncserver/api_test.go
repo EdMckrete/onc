@@ -8,7 +8,6 @@ import (
 
 	"github.com/swiftstack/onc"
 	"github.com/swiftstack/onc/oncclient"
-	"github.com/swiftstack/xdr"
 )
 
 const (
@@ -48,7 +47,7 @@ func TestAPI(t *testing.T) {
 		progVersList          []ProgVersStruct
 		tcpAddr               *net.TCPAddr
 		tcpConn               *net.TCPConn
-		testProcArgs          *testProcArgsStruct
+		testProcArgs          []byte
 		testTCPReplyHandler   *testTCPReplyHandlerStruct
 		testTCPRequestHandler *testTCPRequestHandlerStruct
 		testUDPReplyHandler   *testUDPReplyHandlerStruct
@@ -57,7 +56,7 @@ func TestAPI(t *testing.T) {
 		udpConn               *net.UDPConn
 	)
 
-	testProcArgs = &testProcArgsStruct{EchoString: testEchoString}
+	testProcArgs = []byte(testEchoString)
 
 	progVersList = []ProgVersStruct{ProgVersStruct{Prog: testProg, VersList: []uint32{testVers}}}
 
@@ -140,20 +139,11 @@ func TestAPI(t *testing.T) {
 
 func (testTCPRequestHandler *testTCPRequestHandlerStruct) ONCRequest(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, parms []byte) {
 	var (
-		bytesConsumed uint64
-		err           error
-		testProcArgs  testProcArgsStruct
+		err error
 	)
 
-	bytesConsumed, err = xdr.Unpack(parms, &testProcArgs)
-	if nil != err {
-		testTCPRequestHandler.t.Fatalf("func (testTCPRequestHandler *testTCPRequestHandlerStruct) ONCRequest() call to xdr.Unpack(parms, &testProcArgs) got error: %v", err)
-	}
-	if uint64(len(parms)) != bytesConsumed {
-		testTCPRequestHandler.t.Fatalf("func (testTCPRequestHandler *testTCPRequestHandlerStruct) ONCRequest() call to xdr.Unpack(parms, &testProcArgs) didn't consume entire parms")
-	}
-	if testEchoString != testProcArgs.EchoString {
-		testTCPRequestHandler.t.Fatalf("func (testTCPRequestHandler *testTCPRequestHandlerStruct) ONCRequest() testEchoString != testProcArgs.echoString")
+	if 0 != bytes.Compare([]byte(testEchoString), parms) {
+		testTCPRequestHandler.t.Fatalf("func (testTCPRequestHandler *testTCPRequestHandlerStruct) ONCRequest() 0 != bytes.Compare([]byte(testEchoString), parms)")
 	}
 
 	err = SendAcceptedSuccess(connHandle, xid, []byte(testEchoString))
@@ -164,20 +154,11 @@ func (testTCPRequestHandler *testTCPRequestHandlerStruct) ONCRequest(connHandle 
 
 func (testUDPRequestHandler *testUDPRequestHandlerStruct) ONCRequest(connHandle ConnHandle, xid uint32, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, parms []byte) {
 	var (
-		bytesConsumed uint64
-		err           error
-		testProcArgs  testProcArgsStruct
+		err error
 	)
 
-	bytesConsumed, err = xdr.Unpack(parms, &testProcArgs)
-	if nil != err {
-		testUDPRequestHandler.t.Fatalf("func (testUDPRequestHandler *testUDPRequestHandlerStruct) ONCRequest() call to xdr.Unpack(parms, &testProcArgs) got error: %v", err)
-	}
-	if uint64(len(parms)) != bytesConsumed {
-		testUDPRequestHandler.t.Fatalf("func (testUDPRequestHandler *testUDPRequestHandlerStruct) ONCRequest() call to xdr.Unpack(parms, &testProcArgs) didn't consume entire parms")
-	}
-	if testEchoString != testProcArgs.EchoString {
-		testUDPRequestHandler.t.Fatalf("func (testUDPRequestHandler *testUDPRequestHandlerStruct) ONCRequest() testEchoString != testProcArgs.echoString")
+	if 0 != bytes.Compare([]byte(testEchoString), parms) {
+		testUDPRequestHandler.t.Fatalf("func (testUDPRequestHandler *testUDPRequestHandlerStruct) ONCRequest() 0 != bytes.Compare([]byte(testEchoString), parms)")
 	}
 
 	err = SendAcceptedSuccess(connHandle, xid, []byte(testEchoString))

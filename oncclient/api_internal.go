@@ -60,7 +60,7 @@ func fetchXID() (xid uint32) {
 	return
 }
 
-func issueTCPCall(tcpConn *net.TCPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs interface{}, replyCallbacks ReplyCallbacks) (err error) {
+func issueTCPCall(tcpConn *net.TCPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs []byte, replyCallbacks ReplyCallbacks) (err error) {
 	var (
 		authSysBodyBuf              []byte
 		callBuf                     []byte
@@ -71,7 +71,6 @@ func issueTCPCall(tcpConn *net.TCPConn, prog uint32, vers uint32, proc uint32, a
 		callRpcMsgHeader            onc.RpcMsgHeaderStruct
 		callRpcMsgHeaderBuf         []byte
 		ok                          bool
-		procArgsBuf                 []byte
 		tcpConnContext              *tcpConnContextStruct
 		xid                         uint32
 	)
@@ -137,16 +136,11 @@ func issueTCPCall(tcpConn *net.TCPConn, prog uint32, vers uint32, proc uint32, a
 
 		callBuf = make([]byte, 0, len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf))
 	} else {
-		procArgsBuf, err = xdr.Pack(procArgs)
-		if nil != err {
-			return
-		}
-
 		callRecordFragmentMark = onc.RecordFragmentMarkStruct{
-			LastFragmentFlagAndFragmentLength: 0x80000000 | uint32(len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(procArgsBuf)),
+			LastFragmentFlagAndFragmentLength: 0x80000000 | uint32(len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(procArgs)),
 		}
 
-		callBuf = make([]byte, 0, len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(procArgsBuf))
+		callBuf = make([]byte, 0, len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(procArgs))
 	}
 
 	callRecordFragmentMarkBuf, err = xdr.Pack(callRecordFragmentMark)
@@ -159,7 +153,7 @@ func issueTCPCall(tcpConn *net.TCPConn, prog uint32, vers uint32, proc uint32, a
 	callBuf = append(callBuf, callRpcMsgCallBodyHeaderBuf...)
 
 	if nil != procArgs {
-		callBuf = append(callBuf, procArgsBuf...)
+		callBuf = append(callBuf, procArgs...)
 	}
 
 	globals.Lock()
@@ -276,7 +270,7 @@ func (tCCS *tcpConnContextStruct) replyHandlerExit() {
 	runtime.Goexit()
 }
 
-func issueUDPCall(udpConn *net.UDPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs interface{}, replyCallbacks ReplyCallbacks) (err error) {
+func issueUDPCall(udpConn *net.UDPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs []byte, replyCallbacks ReplyCallbacks) (err error) {
 	var (
 		authSysBodyBuf              []byte
 		bytesWritten                int
@@ -286,7 +280,6 @@ func issueUDPCall(udpConn *net.UDPConn, prog uint32, vers uint32, proc uint32, a
 		callRpcMsgHeader            onc.RpcMsgHeaderStruct
 		callRpcMsgHeaderBuf         []byte
 		ok                          bool
-		procArgsBuf                 []byte
 		udpConnContext              *udpConnContextStruct
 		xid                         uint32
 	)
@@ -348,19 +341,14 @@ func issueUDPCall(udpConn *net.UDPConn, prog uint32, vers uint32, proc uint32, a
 	if nil == procArgs {
 		callBuf = make([]byte, 0, len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf))
 	} else {
-		procArgsBuf, err = xdr.Pack(procArgs)
-		if nil != err {
-			return
-		}
-
-		callBuf = make([]byte, 0, len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(procArgsBuf))
+		callBuf = make([]byte, 0, len(callRpcMsgHeaderBuf)+len(callRpcMsgCallBodyHeaderBuf)+len(procArgs))
 	}
 
 	callBuf = append(callBuf, callRpcMsgHeaderBuf...)
 	callBuf = append(callBuf, callRpcMsgCallBodyHeaderBuf...)
 
 	if nil != procArgs {
-		callBuf = append(callBuf, procArgsBuf...)
+		callBuf = append(callBuf, procArgs...)
 	}
 
 	globals.Lock()
@@ -583,12 +571,13 @@ type pmapProcSetContextStruct struct {
 
 func doPmapProcSet(prog uint32, vers uint32, prot uint32, port uint16) (err error) {
 	var (
-		callPmapMapping onc.PmapMappingStruct
-		pPSCS           *pmapProcSetContextStruct
-		tcpAddr         *net.TCPAddr
-		tcpConn         *net.TCPConn
-		udpAddr         *net.UDPAddr
-		udpConn         *net.UDPConn
+		callPmapMapping    onc.PmapMappingStruct
+		callPmapMappingBuf []byte
+		pPSCS              *pmapProcSetContextStruct
+		tcpAddr            *net.TCPAddr
+		tcpConn            *net.TCPConn
+		udpAddr            *net.UDPAddr
+		udpConn            *net.UDPConn
 	)
 
 	callPmapMapping = onc.PmapMappingStruct{
@@ -596,6 +585,11 @@ func doPmapProcSet(prog uint32, vers uint32, prot uint32, port uint16) (err erro
 		Vers: vers,
 		Prot: prot,
 		Port: uint32(port),
+	}
+
+	callPmapMappingBuf, err = xdr.Pack(callPmapMapping)
+	if nil != err {
+		return
 	}
 
 	pPSCS = &pmapProcSetContextStruct{}
@@ -614,7 +608,7 @@ func doPmapProcSet(prog uint32, vers uint32, prot uint32, port uint16) (err erro
 			return
 		}
 
-		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcSet, nil, callPmapMapping, pPSCS)
+		err = issueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcSet, nil, callPmapMappingBuf, pPSCS)
 		if nil != err {
 			return
 		}
@@ -629,7 +623,7 @@ func doPmapProcSet(prog uint32, vers uint32, prot uint32, port uint16) (err erro
 			return
 		}
 
-		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcSet, nil, callPmapMapping, pPSCS)
+		err = issueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcSet, nil, callPmapMappingBuf, pPSCS)
 		if nil != err {
 			return
 		}
@@ -687,12 +681,13 @@ type pmapProcUnsetContextStruct struct {
 
 func doPmapProcUnset(prog uint32, vers uint32, prot uint32) (err error) {
 	var (
-		callPmapMapping onc.PmapMappingStruct
-		pPUCS           *pmapProcUnsetContextStruct
-		tcpAddr         *net.TCPAddr
-		tcpConn         *net.TCPConn
-		udpAddr         *net.UDPAddr
-		udpConn         *net.UDPConn
+		callPmapMapping    onc.PmapMappingStruct
+		callPmapMappingBuf []byte
+		pPUCS              *pmapProcUnsetContextStruct
+		tcpAddr            *net.TCPAddr
+		tcpConn            *net.TCPConn
+		udpAddr            *net.UDPAddr
+		udpConn            *net.UDPConn
 	)
 
 	callPmapMapping = onc.PmapMappingStruct{
@@ -700,6 +695,11 @@ func doPmapProcUnset(prog uint32, vers uint32, prot uint32) (err error) {
 		Vers: vers,
 		Prot: prot,
 		Port: 0,
+	}
+
+	callPmapMappingBuf, err = xdr.Pack(callPmapMapping)
+	if nil != err {
+		return
 	}
 
 	pPUCS = &pmapProcUnsetContextStruct{}
@@ -718,7 +718,7 @@ func doPmapProcUnset(prog uint32, vers uint32, prot uint32) (err error) {
 			return
 		}
 
-		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcUnset, nil, callPmapMapping, pPUCS)
+		err = issueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcUnset, nil, callPmapMappingBuf, pPUCS)
 		if nil != err {
 			return
 		}
@@ -733,7 +733,7 @@ func doPmapProcUnset(prog uint32, vers uint32, prot uint32) (err error) {
 			return
 		}
 
-		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcUnset, nil, callPmapMapping, pPUCS)
+		err = issueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcUnset, nil, callPmapMappingBuf, pPUCS)
 		if nil != err {
 			return
 		}
@@ -792,12 +792,13 @@ type pmapProcGetAddrContextStruct struct {
 
 func doPmapProcGetAddr(addr string, prog uint32, vers uint32, prot uint32) (port uint16, err error) {
 	var (
-		callPmapMapping onc.PmapMappingStruct
-		pPGACS          *pmapProcGetAddrContextStruct
-		tcpAddr         *net.TCPAddr
-		tcpConn         *net.TCPConn
-		udpAddr         *net.UDPAddr
-		udpConn         *net.UDPConn
+		callPmapMapping    onc.PmapMappingStruct
+		callPmapMappingBuf []byte
+		pPGACS             *pmapProcGetAddrContextStruct
+		tcpAddr            *net.TCPAddr
+		tcpConn            *net.TCPConn
+		udpAddr            *net.UDPAddr
+		udpConn            *net.UDPConn
 	)
 
 	callPmapMapping = onc.PmapMappingStruct{
@@ -805,6 +806,11 @@ func doPmapProcGetAddr(addr string, prog uint32, vers uint32, prot uint32) (port
 		Vers: vers,
 		Prot: prot,
 		Port: 0,
+	}
+
+	callPmapMappingBuf, err = xdr.Pack(callPmapMapping)
+	if nil != err {
+		return
 	}
 
 	pPGACS = &pmapProcGetAddrContextStruct{}
@@ -823,7 +829,7 @@ func doPmapProcGetAddr(addr string, prog uint32, vers uint32, prot uint32) (port
 			return
 		}
 
-		err = IssueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, pPGACS)
+		err = issueTCPCall(tcpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMappingBuf, pPGACS)
 		if nil != err {
 			return
 		}
@@ -838,7 +844,7 @@ func doPmapProcGetAddr(addr string, prog uint32, vers uint32, prot uint32) (port
 			return
 		}
 
-		err = IssueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMapping, pPGACS)
+		err = issueUDPCall(udpConn, onc.ProgNumPortMap, onc.PmapVers, onc.PmapProcGetAddr, nil, callPmapMappingBuf, pPGACS)
 		if nil != err {
 			return
 		}

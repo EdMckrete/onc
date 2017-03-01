@@ -15,13 +15,13 @@ type ReplyCallbacks interface {
 }
 
 // IssueTCPCall sends the ONC RPC Call on the supplied *net.TCPConn
-func IssueTCPCall(tcpConn *net.TCPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs interface{}, replyCallbacks ReplyCallbacks) (err error) {
+func IssueTCPCall(tcpConn *net.TCPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs []byte, replyCallbacks ReplyCallbacks) (err error) {
 	err = issueTCPCall(tcpConn, prog, vers, proc, authSysBody, procArgs, replyCallbacks)
 	return
 }
 
 // IssueUDPCall sends the ONC RPC Call on the supplied *net.UDPConn
-func IssueUDPCall(udpConn *net.UDPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs interface{}, replyCallbacks ReplyCallbacks) (err error) {
+func IssueUDPCall(udpConn *net.UDPConn, prog uint32, vers uint32, proc uint32, authSysBody *onc.AuthSysBodyStruct, procArgs []byte, replyCallbacks ReplyCallbacks) (err error) {
 	err = issueUDPCall(udpConn, prog, vers, proc, authSysBody, procArgs, replyCallbacks)
 	return
 }
