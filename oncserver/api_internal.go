@@ -32,9 +32,11 @@ func startServer(prot uint32, port uint16, progVersList []ProgVersStruct, callba
 			err = fmt.Errorf("prog (%v) must contain at least one supported vers", progVers.Prog)
 			return
 		}
-		serverProgVersSet.minVers = 0xFFFFFFFF
-		serverProgVersSet.maxVers = 0x00000000
-		serverProgVersSet.versMap = make(map[uint32]bool)
+		serverProgVersSet = &serverProgVersSetStruct{
+			minVers: 0xFFFFFFFF,
+			maxVers: 0x00000000,
+			versMap: make(map[uint32]bool),
+		}
 		serverProgSet[progVers.Prog] = serverProgVersSet
 		for _, vers = range progVers.VersList {
 			_, ok = serverProgVersSet.versMap[vers]
